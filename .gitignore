@@ -1,0 +1,525 @@
+# NexusGuard NOC - Git Ignore File
+
+# ============================================================================
+# Python
+# ============================================================================
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+cover/
+
+# Translations
+*.mo
+*.pot
+
+# Django stuff:
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+
+# Flask stuff:
+instance/
+.webassets-cache
+
+# Scrapy stuff:
+.scrapy
+
+# Sphinx documentation
+docs/_build/
+
+# PyBuilder
+.pybuilder/
+target/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# pyenv
+.python-version
+
+# pipenv
+Pipfile.lock
+
+# poetry
+poetry.lock
+
+# pdm
+.pdm.toml
+
+# PEP 582
+__pypackages__/
+
+# Celery stuff
+celerybeat-schedule
+celerybeat.pid
+
+# SageMath parsed files
+*.sage.py
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# pytype static type analyzer
+.pytype/
+
+# Cython debug symbols
+cython_debug/
+
+# ============================================================================
+# Node.js / Next.js
+# ============================================================================
+
+# Dependencies
+node_modules/
+/.pnp
+.pnp.js
+
+# Testing
+/coverage
+
+# Next.js
+/.next/
+/out/
+
+# Production
+/build
+
+# Misc
+.DS_Store
+*.pem
+
+# Debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Local env files
+.env*.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Vercel
+.vercel
+
+# Typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# ============================================================================
+# Docker
+# ============================================================================
+
+# Docker volumes (persistent data)
+docker-volumes/
+volumes/
+
+# Docker compose override (local development customizations)
+docker-compose.override.yml
+
+# ============================================================================
+# Database
+# ============================================================================
+
+# PostgreSQL
+*.sql
+*.dump
+*.backup
+postgres-data/
+pgdata/
+
+# Redis
+redis-data/
+dump.rdb
+appendonly.aof
+
+# ============================================================================
+# Prometheus & Monitoring
+# ============================================================================
+
+# Prometheus data
+prometheus/data/
+prometheus-data/
+
+# Grafana data
+grafana/data/
+grafana-data/
+
+# Alert manager data
+alertmanager/data/
+
+# ============================================================================
+# HashiCorp Vault
+# ============================================================================
+
+# Vault data
+vault/data/
+vault/logs/
+vault/file/
+vault-data/
+
+# Vault tokens and keys (NEVER commit these!)
+vault-token
+vault-unseal-key*
+.vault-token
+*.vault
+
+# ============================================================================
+# Ansible
+# ============================================================================
+
+# Ansible retry files
+*.retry
+
+# Ansible vault password files
+.vault_pass
+.vault_password
+vault_pass.txt
+
+# Ansible roles downloaded from Galaxy
+roles/
+ansible/roles/
+
+# Ansible inventory files with sensitive data
+inventory/production
+inventory/staging
+inventory/*.ini
+
+# ============================================================================
+# Secrets & Credentials (CRITICAL - NEVER COMMIT)
+# ============================================================================
+
+# Environment files with secrets
+.env
+.env.*
+!.env.example
+!.env.template
+
+# Credential files
+credentials.json
+secrets.json
+secrets.yml
+secrets.yaml
+*-credentials.json
+*-secrets.*
+
+# SSH keys
+*.pem
+*.key
+id_rsa
+id_rsa.pub
+*.ppk
+
+# SSL/TLS certificates
+*.crt
+*.csr
+*.p12
+*.pfx
+!self-signed.crt
+
+# API keys
+api_keys.txt
+*.apikey
+
+# Database passwords
+db_password.txt
+database.conf
+
+# ============================================================================
+# IDEs & Editors
+# ============================================================================
+
+# VSCode
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+!.vscode/*.code-snippets
+
+# JetBrains (PyCharm, IntelliJ, etc.)
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+*.swp
+*.swo
+*~
+.netrwhist
+
+# Emacs
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+
+# Eclipse
+.project
+.classpath
+.settings/
+
+# ============================================================================
+# Operating System
+# ============================================================================
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+[Dd]esktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# ============================================================================
+# Logs
+# ============================================================================
+
+# Application logs
+logs/
+*.log
+*.log.*
+log/
+*.log.gz
+*.log.zip
+
+# System logs
+syslog
+messages
+
+# ============================================================================
+# Temporary Files
+# ============================================================================
+
+# Temporary directories
+tmp/
+temp/
+.tmp/
+.temp/
+
+# Cache directories
+cache/
+.cache/
+
+# Backup files
+*.bak
+*.backup
+*.old
+*.orig
+*~
+
+# ============================================================================
+# CI/CD
+# ============================================================================
+
+# GitHub Actions
+.github/workflows/secrets.yml
+
+# Jenkins
+.jenkins/
+
+# CircleCI
+.circleci/local/
+
+# GitLab CI
+.gitlab-ci-local/
+
+# ============================================================================
+# Monitoring & Metrics
+# ============================================================================
+
+# Test data (if not needed in repo)
+test_data/
+sample_data/
+
+# Metric exports
+metrics/
+*.metrics
+
+# Performance test results
+benchmark_results/
+load_test_results/
+
+# ============================================================================
+# Documentation Build Artifacts
+# ============================================================================
+
+# Sphinx
+_build/
+_static/
+_templates/
+
+# MkDocs
+site/
+
+# ============================================================================
+# Ansible Learned Playbooks (Optional - decide based on your needs)
+# ============================================================================
+
+# Uncomment to ignore AI-generated playbooks (not recommended for production)
+# ansible/playbooks/learned_playbooks/
+# learned_playbooks/
+
+# ============================================================================
+# Custom NexusGuard NOC Specific
+# ============================================================================
+
+# Data generator output
+data_generator/output/
+generated_metrics/
+
+# Incident export files
+incident_exports/
+*.incident.json
+
+# Compliance report exports
+compliance_reports/
+*.compliance.pdf
+
+# Playbook execution logs
+playbook_executions/
+execution_logs/
+
+# Vault audit logs (sensitive)
+vault_audit_logs/
+*.vault_audit
+
+# Patent working files (if you want to keep them private)
+# Uncomment if patent docs should not be in repo
+# patent/
+# *.patent.md
+
+# ============================================================================
+# Keep These Files
+# ============================================================================
+
+# Keep example/template files
+!.env.example
+!config.example.yml
+!secrets.example.json
+!docker-compose.example.yml
+
+# Keep README files
+!README.md
+!*/README.md
+
+# Keep license
+!LICENSE
+
+# Keep gitignore itself
+!.gitignore

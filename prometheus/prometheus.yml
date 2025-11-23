@@ -1,0 +1,118 @@
+# NexusGuard NOC - Prometheus Configuration
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: 'nexusguard-noc'
+    environment: 'production'
+
+# Alertmanager configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - alertmanager:9093
+
+# Load rules once and periodically evaluate them
+rule_files:
+  - "/etc/prometheus/rules/*.yml"
+
+# Scrape configurations
+scrape_configs:
+  # Prometheus itself
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Pushgateway (Sample Data Generator)
+  - job_name: 'pushgateway'
+    honor_labels: true
+    static_configs:
+      - targets: ['pushgateway:9091']
+
+  # NexusGuard NOC Backend
+  - job_name: 'nexusguard-backend'
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['backend:8090']
+        labels:
+          service: 'noc-backend'
+          region: 'global'
+
+  # Application Services - India
+  - job_name: 'app-services-india'
+    static_configs:
+      - targets: ['app-india-1:9100', 'app-india-2:9100']
+        labels:
+          region: 'india'
+          environment: 'production'
+
+  # Application Services - China
+  - job_name: 'app-services-china'
+    static_configs:
+      - targets: ['app-china-1:9100', 'app-china-2:9100']
+        labels:
+          region: 'china'
+          environment: 'production'
+
+  # Application Services - USA
+  - job_name: 'app-services-usa'
+    static_configs:
+      - targets: ['app-usa-1:9100', 'app-usa-2:9100']
+        labels:
+          region: 'usa'
+          environment: 'production'
+
+  # Network Devices
+  - job_name: 'network-devices'
+    static_configs:
+      - targets: ['snmp-exporter:9116']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - target_label: __address__
+        replacement: snmp-exporter:9116
+
+  # Node Exporter (Server Metrics)
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets:
+          - 'node-india-1:9100'
+          - 'node-india-2:9100'
+          - 'node-china-1:9100'
+          - 'node-china-2:9100'
+          - 'node-usa-1:9100'
+          - 'node-usa-2:9100'
+
+  # PostgreSQL
+  - job_name: 'postgresql'
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+        labels:
+          service: 'postgresql'
+
+  # Redis
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis-exporter:9121']
+        labels:
+          service: 'redis'
+
+  # Blackbox Exporter (Endpoint Probing)
+  - job_name: 'blackbox'
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+          - https://api.nexusguard.io/health
+          - https://api-india.nexusguard.io/health
+          - https://api-china.nexusguard.io/health
+          - https://api-usa.nexusguard.io/health
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115

@@ -1,0 +1,90 @@
+---
+# @name: Network Connectivity Test
+# @description: Test network connectivity between services and external dependencies
+# @category: network
+# @incident_types: network_partition, connectivity_loss, dns_failure
+# @requires_approval: false
+# @is_automated: true
+
+- name: Network Connectivity Test
+  hosts: "{{ target_hosts | default('all') }}"
+  become: yes
+  gather_facts: yes
+
+  vars:
+    internal_hosts:
+      - name: Database Primary
+        host: db-primary
+        port: 5432
+      - name: Redis Cache
+        host: redis-cache
+        port: 6379
+      - name: Message Queue
+        host: rabbitmq
+        port: 5672
+    external_hosts:
+      - name: DNS Google
+        host: 8.8.8.8
+        port: 53
+      - name: DNS Cloudflare
+        host: 1.1.1.1
+        port: 53
+    dns_lookups:
+      - api.nexusguard.io
+      - prometheus.nexusguard.io
+
+  tasks:
+    - name: Test internal connectivity
+      ansible.builtin.wait_for:
+        host: "{{ item.host }}"
+        port: "{{ item.port }}"
+        timeout: 5
+        state: started
+      register: internal_results
+      loop: "{{ internal_hosts }}"
+      ignore_errors: yes
+
+    - name: Test external connectivity
+      ansible.builtin.wait_for:
+        host: "{{ item.host }}"
+        port: "{{ item.port }}"
+        timeout: 5
+        state: started
+      register: external_results
+      loop: "{{ external_hosts }}"
+      ignore_errors: yes
+
+    - name: Test DNS resolution
+      ansible.builtin.command:
+        cmd: "nslookup {{ item }}"
+      register: dns_results
+      loop: "{{ dns_lookups }}"
+      ignore_errors: yes
+      changed_when: false
+
+    - name: Test default gateway
+      ansible.builtin.shell: |
+        gateway=$(ip route | grep default | awk '{print $3}')
+        ping -c 3 -W 2 $gateway
+      register: gateway_test
+      ignore_errors: yes
+      changed_when: false
+
+    - name: Generate connectivity report
+      ansible.builtin.set_fact:
+        connectivity_report:
+          host: "{{ inventory_hostname }}"
+          timestamp: "{{ ansible_date_time.iso8601 }}"
+          internal: "{{ internal_results.results | map(attribute='failed') | map('ternary', 'FAIL', 'OK') | list }}"
+          external: "{{ external_results.results | map(attribute='failed') | map('ternary', 'FAIL', 'OK') | list }}"
+          dns: "{{ dns_results.results | map(attribute='rc') | map('ternary', 'FAIL', 'OK', 0) | list }}"
+          gateway: "{{ 'OK' if gateway_test.rc == 0 else 'FAIL' }}"
+
+    - name: Display connectivity report
+      ansible.builtin.debug:
+        var: connectivity_report
+
+    - name: Alert on failures
+      ansible.builtin.debug:
+        msg: "ALERT: Network connectivity issues detected!"
+      when: "'FAIL' in connectivity_report.internal or 'FAIL' in connectivity_report.external"

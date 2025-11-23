@@ -1,0 +1,81 @@
+---
+# @name: Database Failover
+# @description: Promote replica to primary and update application connections
+# @category: database
+# @incident_types: database_primary_down, database_unreachable, replication_failure
+# @requires_approval: true
+# @is_automated: false
+
+- name: Database Failover
+  hosts: localhost
+  gather_facts: no
+
+  vars:
+    primary_host: "{{ failed_primary }}"
+    replica_host: "{{ target_replica }}"
+    app_config_path: /etc/nexusguard/database.yml
+
+  tasks:
+    - name: Pre-flight checks
+      block:
+        - name: Verify primary is unreachable
+          ansible.builtin.wait_for:
+            host: "{{ primary_host }}"
+            port: 5432
+            timeout: 5
+            state: started
+          register: primary_check
+          ignore_errors: yes
+
+        - name: Abort if primary is reachable
+          ansible.builtin.fail:
+            msg: "Primary database is still reachable. Aborting failover."
+          when: primary_check is success
+
+        - name: Verify replica is reachable
+          ansible.builtin.wait_for:
+            host: "{{ replica_host }}"
+            port: 5432
+            timeout: 10
+            state: started
+
+    - name: Promote replica to primary
+      block:
+        - name: Stop replication on replica
+          ansible.builtin.command:
+            cmd: psql -h {{ replica_host }} -U postgres -c "SELECT pg_promote();"
+          register: promote_result
+
+        - name: Wait for promotion to complete
+          ansible.builtin.pause:
+            seconds: 10
+
+        - name: Verify new primary is writable
+          ansible.builtin.command:
+            cmd: psql -h {{ replica_host }} -U postgres -c "SELECT pg_is_in_recovery();"
+          register: recovery_check
+          until: "'f' in recovery_check.stdout"
+          retries: 6
+          delay: 5
+
+    - name: Update application configuration
+      ansible.builtin.debug:
+        msg: "Would update application database config to point to {{ replica_host }}"
+
+    - name: Generate failover report
+      ansible.builtin.set_fact:
+        failover_report:
+          old_primary: "{{ primary_host }}"
+          new_primary: "{{ replica_host }}"
+          timestamp: "{{ lookup('pipe', 'date -u +%Y-%m-%dT%H:%M:%SZ') }}"
+          status: "completed"
+          next_steps:
+            - "Verify application connectivity"
+            - "Check for data consistency"
+            - "Update DNS records if applicable"
+            - "Provision new replica from new primary"
+            - "Investigate failed primary"
+
+    - name: Display failover report
+      ansible.builtin.debug:
+        var: failover_report

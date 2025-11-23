@@ -1,0 +1,88 @@
+---
+- name: BGP Session Recovery and Troubleshooting
+  hosts: routers
+  gather_facts: yes
+  become: yes
+
+  vars:
+    auto_recovery: true
+    max_recovery_attempts: 3
+    neighbor_check_interval: 30
+
+  tasks:
+    - name: Check BGP session status
+      shell: |
+        show ip bgp summary | awk '/^[0-9]/ {print $1,$10}'
+      register: bgp_status
+
+    - name: Identify down BGP sessions
+      set_fact:
+        down_bgp_peers: "{{ bgp_status.stdout_lines | select('search', 'Idle|Active|Connect') | list }}"
+
+    - name: Display BGP session status
+      debug:
+        msg: "BGP sessions down: {{ down_bgp_peers | length }}"
+
+    - name: Log BGP neighbor details
+      shell: |
+        show ip bgp neighbors {{ item.split()[0] }} | head -50
+      register: neighbor_details
+      loop: "{{ down_bgp_peers }}"
+      when: down_bgp_peers | length > 0
+
+    - name: Check route count before recovery
+      shell: |
+        show ip route bgp | count
+      register: route_count_before
+
+    - name: Attempt soft BGP reset
+      shell: |
+        clear ip bgp {{ item.split()[0] }} soft
+      loop: "{{ down_bgp_peers }}"
+      when:
+        - auto_recovery
+        - down_bgp_peers | length > 0
+
+    - name: Wait for BGP convergence
+      wait_for:
+        timeout: "{{ neighbor_check_interval }}"
+      when: down_bgp_peers | length > 0
+
+    - name: Verify BGP session recovery
+      shell: |
+        show ip bgp summary | awk '/^[0-9]/ {print $1,$10}'
+      register: bgp_status_after
+      when: down_bgp_peers | length > 0
+
+    - name: Check route count after recovery
+      shell: |
+        show ip route bgp | count
+      register: route_count_after
+      when: down_bgp_peers | length > 0
+
+    - name: Hard reset if soft reset failed
+      shell: |
+        clear ip bgp {{ item.split()[0] }}
+      loop: "{{ down_bgp_peers }}"
+      when:
+        - auto_recovery
+        - bgp_status_after.stdout is search('Idle|Active|Connect')
+
+    - name: Collect diagnostics if recovery failed
+      shell: |
+        show ip bgp neighbors {{ item.split()[0] }} | redirect flash:bgp-diag-{{ ansible_date_time.epoch }}.txt
+      loop: "{{ down_bgp_peers }}"
+      when: bgp_status_after.stdout is search('Idle|Active|Connect')
+
+    - name: Send incident notification
+      uri:
+        url: "{{ webhook_url }}/incidents/create"
+        method: POST
+        body_format: json
+        body:
+          title: "BGP Session Recovery on {{ inventory_hostname }}"
+          severity: "{{ 'critical' if bgp_status_after.stdout is search('Idle|Active|Connect') else 'info' }}"
+          description: "BGP recovery attempted. Routes before: {{ route_count_before.stdout }}, after: {{ route_count_after.stdout }}"
+          service: "network"
+          region: "{{ region }}"
+      when: webhook_url is defined

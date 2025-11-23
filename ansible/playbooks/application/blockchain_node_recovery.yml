@@ -1,0 +1,94 @@
+---
+# @name: Blockchain Node Recovery
+# @description: Recover and resync blockchain nodes that have fallen behind
+# @category: application
+# @incident_types: blockchain_sync_failure, node_behind, consensus_failure
+# @requires_approval: true
+# @is_automated: false
+
+- name: Blockchain Node Recovery
+  hosts: "{{ target_hosts | default('blockchain_nodes') }}"
+  become: yes
+  gather_facts: yes
+  serial: 1
+
+  vars:
+    blockchain_service: nexusguard-blockchain
+    data_dir: /var/lib/blockchain
+    health_endpoint: "http://localhost:8545/health"
+
+  tasks:
+    - name: Check node sync status
+      ansible.builtin.uri:
+        url: "{{ health_endpoint }}"
+        method: POST
+        body_format: json
+        body:
+          jsonrpc: "2.0"
+          method: "eth_syncing"
+          params: []
+          id: 1
+      register: sync_status
+      ignore_errors: yes
+
+    - name: Display current sync status
+      ansible.builtin.debug:
+        msg: "Sync status: {{ sync_status.json.result | default('unknown') }}"
+
+    - name: Stop blockchain service
+      ansible.builtin.systemd:
+        name: "{{ blockchain_service }}"
+        state: stopped
+
+    - name: Backup current chain data
+      ansible.builtin.archive:
+        path: "{{ data_dir }}/chaindata"
+        dest: "/backup/chaindata_{{ ansible_date_time.epoch }}.tar.gz"
+        format: gz
+      ignore_errors: yes
+
+    - name: Clear corrupted data if needed
+      ansible.builtin.file:
+        path: "{{ data_dir }}/chaindata/LOCK"
+        state: absent
+      ignore_errors: yes
+
+    - name: Start blockchain service
+      ansible.builtin.systemd:
+        name: "{{ blockchain_service }}"
+        state: started
+
+    - name: Wait for node to start syncing
+      ansible.builtin.uri:
+        url: "{{ health_endpoint }}"
+        method: POST
+        body_format: json
+        body:
+          jsonrpc: "2.0"
+          method: "eth_syncing"
+          params: []
+          id: 1
+      register: new_sync_status
+      until: new_sync_status.status == 200
+      retries: 30
+      delay: 10
+
+    - name: Get peer count
+      ansible.builtin.uri:
+        url: "{{ health_endpoint }}"
+        method: POST
+        body_format: json
+        body:
+          jsonrpc: "2.0"
+          method: "net_peerCount"
+          params: []
+          id: 1
+      register: peer_count
+
+    - name: Display recovery status
+      ansible.builtin.debug:
+        msg: |
+          Node recovery initiated
+          Sync status: {{ new_sync_status.json.result | default('syncing') }}
+          Peer count: {{ peer_count.json.result | default('0') }}
+          Monitor progress with: journalctl -fu {{ blockchain_service }}

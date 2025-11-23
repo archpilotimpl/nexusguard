@@ -1,0 +1,93 @@
+---
+# @name: Disk Cleanup
+# @description: Clean up disk space by removing old logs and temporary files
+# @category: infrastructure
+# @incident_types: disk_space_low, high_disk_usage
+# @requires_approval: false
+# @is_automated: true
+
+- name: Disk Cleanup
+  hosts: "{{ target_hosts | default('all') }}"
+  become: yes
+  gather_facts: yes
+
+  vars:
+    log_retention_days: 7
+    temp_dirs:
+      - /tmp
+      - /var/tmp
+    log_dirs:
+      - /var/log/{{ app_service_name | default('nexusguard') }}
+    journal_vacuum_size: "500M"
+
+  pre_tasks:
+    - name: Get initial disk usage
+      ansible.builtin.command: df -h /
+      register: initial_disk
+      changed_when: false
+
+    - name: Display initial disk usage
+      ansible.builtin.debug:
+        msg: "Initial disk usage: {{ initial_disk.stdout_lines[-1] }}"
+
+  tasks:
+    - name: Clean old log files
+      ansible.builtin.find:
+        paths: "{{ item }}"
+        age: "{{ log_retention_days }}d"
+        recurse: yes
+        file_type: file
+        patterns:
+          - "*.log"
+          - "*.log.*"
+          - "*.gz"
+      register: old_logs
+      loop: "{{ log_dirs }}"
+
+    - name: Remove old log files
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ old_logs.results | map(attribute='files') | flatten }}"
+      when: old_logs.results | length > 0
+
+    - name: Clean temporary directories
+      ansible.builtin.shell: |
+        find {{ item }} -type f -atime +3 -delete 2>/dev/null || true
+      loop: "{{ temp_dirs }}"
+      changed_when: false
+
+    - name: Clean systemd journal
+      ansible.builtin.command:
+        cmd: journalctl --vacuum-size={{ journal_vacuum_size }}
+      register: journal_cleanup
+      changed_when: "'Vacuuming done' in journal_cleanup.stdout"
+
+    - name: Clean apt cache (Debian/Ubuntu)
+      ansible.builtin.apt:
+        autoclean: yes
+        autoremove: yes
+      when: ansible_os_family == "Debian"
+
+    - name: Clean yum cache (RHEL/CentOS)
+      ansible.builtin.command: yum clean all
+      when: ansible_os_family == "RedHat"
+      changed_when: false
+
+    - name: Remove orphaned packages
+      ansible.builtin.package:
+        autoremove: yes
+      ignore_errors: yes
+
+  post_tasks:
+    - name: Get final disk usage
+      ansible.builtin.command: df -h /
+      register: final_disk
+      changed_when: false
+
+    - name: Display cleanup results
+      ansible.builtin.debug:
+        msg: |
+          Disk Cleanup Complete on {{ inventory_hostname }}
+          Initial: {{ initial_disk.stdout_lines[-1] }}
+          Final: {{ final_disk.stdout_lines[-1] }}

@@ -1,0 +1,85 @@
+---
+# @name: Network Device Recovery
+# @description: Diagnose and recover unreachable network devices
+# @category: network
+# @incident_types: device_down, network_unreachable
+# @requires_approval: true
+# @is_automated: false
+
+- name: Network Device Recovery
+  hosts: localhost
+  gather_facts: no
+
+  vars:
+    device_ip: "{{ target_device_ip }}"
+    device_name: "{{ target_device_name | default('unknown') }}"
+    oob_management_ip: "{{ oob_ip | default('') }}"
+
+  tasks:
+    - name: Phase 1 - Diagnostic Checks
+      block:
+        - name: Ping device primary IP
+          ansible.builtin.command:
+            cmd: ping -c 4 -W 5 {{ device_ip }}
+          register: ping_result
+          ignore_errors: yes
+
+        - name: Check if device responds on management port
+          ansible.builtin.wait_for:
+            host: "{{ device_ip }}"
+            port: 22
+            timeout: 10
+            state: started
+          register: ssh_check
+          ignore_errors: yes
+
+        - name: Log connectivity results
+          ansible.builtin.debug:
+            msg: |
+              Device: {{ device_name }} ({{ device_ip }})
+              Ping Status: {{ 'PASS' if ping_result.rc == 0 else 'FAIL' }}
+              SSH Status: {{ 'PASS' if ssh_check is success else 'FAIL' }}
+
+    - name: Phase 2 - Out-of-Band Recovery
+      when: oob_management_ip != '' and ping_result.rc != 0
+      block:
+        - name: Try out-of-band management access
+          ansible.builtin.wait_for:
+            host: "{{ oob_management_ip }}"
+            port: 22
+            timeout: 10
+            state: started
+          register: oob_check
+          ignore_errors: yes
+
+        - name: Log OOB status
+          ansible.builtin.debug:
+            msg: "OOB Management Access: {{ 'AVAILABLE' if oob_check is success else 'UNAVAILABLE' }}"
+
+    - name: Phase 3 - Collect Diagnostic Information
+      when: ssh_check is success
+      block:
+        - name: Collect device information
+          ansible.builtin.debug:
+            msg: "Would collect device diagnostics via SSH"
+
+    - name: Phase 4 - Generate Recovery Report
+      block:
+        - name: Create recovery report
+          ansible.builtin.set_fact:
+            recovery_report:
+              device_name: "{{ device_name }}"
+              device_ip: "{{ device_ip }}"
+              ping_reachable: "{{ ping_result.rc == 0 }}"
+              ssh_accessible: "{{ ssh_check is success }}"
+              oob_available: "{{ oob_check is success | default(false) }}"
+              timestamp: "{{ ansible_date_time.iso8601 | default('unknown') }}"
+              recommended_actions:
+                - "Verify physical connectivity"
+                - "Check power status"
+                - "Review recent configuration changes"
+                - "Contact network team if hardware failure suspected"
+
+        - name: Display recovery report
+          ansible.builtin.debug:
+            var: recovery_report

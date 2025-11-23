@@ -1,0 +1,80 @@
+---
+# @name: Redis Cache Flush
+# @description: Flush Redis cache to resolve stale data or memory issues
+# @category: database
+# @incident_types: cache_corruption, stale_data, redis_memory_full
+# @requires_approval: true
+# @is_automated: false
+
+- name: Redis Cache Flush
+  hosts: localhost
+  gather_facts: no
+
+  vars:
+    redis_host: "{{ target_redis_host | default('localhost') }}"
+    redis_port: "{{ target_redis_port | default(6379) }}"
+    redis_password: "{{ redis_auth | default('') }}"
+    flush_db: "{{ target_db | default('all') }}"
+    flush_pattern: "{{ key_pattern | default('') }}"
+
+  tasks:
+    - name: Get Redis info before flush
+      ansible.builtin.shell: |
+        redis-cli -h {{ redis_host }} -p {{ redis_port }} {% if redis_password %}-a {{ redis_password }}{% endif %} INFO memory | grep used_memory_human
+      register: memory_before
+      changed_when: false
+      no_log: true
+
+    - name: Get key count before flush
+      ansible.builtin.shell: |
+        redis-cli -h {{ redis_host }} -p {{ redis_port }} {% if redis_password %}-a {{ redis_password }}{% endif %} DBSIZE
+      register: keys_before
+      changed_when: false
+      no_log: true
+
+    - name: Display pre-flush stats
+      ansible.builtin.debug:
+        msg: |
+          Memory: {{ memory_before.stdout }}
+          Keys: {{ keys_before.stdout }}
+
+    - name: Flush specific pattern
+      when: flush_pattern != ''
+      ansible.builtin.shell: |
+        redis-cli -h {{ redis_host }} -p {{ redis_port }} {% if redis_password %}-a {{ redis_password }}{% endif %} --scan --pattern '{{ flush_pattern }}' | xargs -r redis-cli -h {{ redis_host }} -p {{ redis_port }} {% if redis_password %}-a {{ redis_password }}{% endif %} DEL
+      register: pattern_flush
+      no_log: true
+
+    - name: Flush specific database
+      when: flush_pattern == '' and flush_db != 'all'
+      ansible.builtin.shell: |
+        redis-cli -h {{ redis_host }} -p {{ redis_port }} {% if redis_password %}-a {{ redis_password }}{% endif %} -n {{ flush_db }} FLUSHDB
+      no_log: true
+
+    - name: Flush all databases
+      when: flush_pattern == '' and flush_db == 'all'
+      ansible.builtin.shell: |
+        redis-cli -h {{ redis_host }} -p {{ redis_port }} {% if redis_password %}-a {{ redis_password }}{% endif %} FLUSHALL
+      no_log: true
+
+    - name: Get Redis info after flush
+      ansible.builtin.shell: |
+        redis-cli -h {{ redis_host }} -p {{ redis_port }} {% if redis_password %}-a {{ redis_password }}{% endif %} INFO memory | grep used_memory_human
+      register: memory_after
+      changed_when: false
+      no_log: true
+
+    - name: Get key count after flush
+      ansible.builtin.shell: |
+        redis-cli -h {{ redis_host }} -p {{ redis_port }} {% if redis_password %}-a {{ redis_password }}{% endif %} DBSIZE
+      register: keys_after
+      changed_when: false
+      no_log: true
+
+    - name: Display post-flush stats
+      ansible.builtin.debug:
+        msg: |
+          Memory before: {{ memory_before.stdout }}
+          Memory after: {{ memory_after.stdout }}
+          Keys before: {{ keys_before.stdout }}
+          Keys after: {{ keys_after.stdout }}

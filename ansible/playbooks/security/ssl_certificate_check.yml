@@ -1,0 +1,65 @@
+---
+# @name: SSL Certificate Check
+# @description: Check SSL certificate expiration across all endpoints
+# @category: security
+# @incident_types: certificate_expiring, ssl_error, security_audit
+# @requires_approval: false
+# @is_automated: true
+
+- name: SSL Certificate Check
+  hosts: localhost
+  gather_facts: no
+
+  vars:
+    warning_days: 30
+    critical_days: 7
+    endpoints:
+      - host: api.nexusguard.io
+        port: 443
+      - host: api-india.nexusguard.io
+        port: 443
+      - host: api-china.nexusguard.io
+        port: 443
+      - host: api-usa.nexusguard.io
+        port: 443
+
+  tasks:
+    - name: Check certificate expiration
+      ansible.builtin.shell: |
+        echo | openssl s_client -servername {{ item.host }} -connect {{ item.host }}:{{ item.port }} 2>/dev/null | \
+        openssl x509 -noout -dates -checkend {{ critical_days * 86400 }} 2>/dev/null
+      register: cert_checks
+      loop: "{{ endpoints }}"
+      ignore_errors: yes
+      changed_when: false
+
+    - name: Get certificate details
+      ansible.builtin.shell: |
+        echo | openssl s_client -servername {{ item.host }} -connect {{ item.host }}:{{ item.port }} 2>/dev/null | \
+        openssl x509 -noout -enddate -subject 2>/dev/null
+      register: cert_details
+      loop: "{{ endpoints }}"
+      ignore_errors: yes
+      changed_when: false
+
+    - name: Parse expiration dates
+      ansible.builtin.set_fact:
+        cert_report: "{{ cert_report | default([]) + [{'host': item.item.host, 'details': item.stdout, 'status': 'OK' if item.rc == 0 else 'EXPIRING SOON'}] }}"
+      loop: "{{ cert_details.results }}"
+
+    - name: Display certificate report
+      ansible.builtin.debug:
+        msg: |
+          === SSL Certificate Report ===
+          {% for cert in cert_report %}
+          Host: {{ cert.host }}
+          {{ cert.details }}
+          Status: {{ cert.status }}
+          ---
+          {% endfor %}
+
+    - name: Alert on expiring certificates
+      ansible.builtin.debug:
+        msg: "WARNING: Certificate for {{ item.host }} is expiring within {{ critical_days }} days!"
+      loop: "{{ cert_report }}"
+      when: item.status == 'EXPIRING SOON'

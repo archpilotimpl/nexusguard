@@ -1,0 +1,72 @@
+---
+# @name: Memory Pressure Relief
+# @description: Clear caches and restart memory-heavy services to relieve memory pressure
+# @category: infrastructure
+# @incident_types: high_memory_usage, oom_killer, memory_exhaustion
+# @requires_approval: false
+# @is_automated: false
+
+- name: Memory Pressure Relief
+  hosts: "{{ target_hosts | default('all') }}"
+  become: yes
+  gather_facts: yes
+
+  vars:
+    memory_threshold: 90
+    services_to_restart: []
+    clear_caches: true
+
+  pre_tasks:
+    - name: Get current memory usage
+      ansible.builtin.shell: free | grep Mem | awk '{print int($3/$2 * 100)}'
+      register: current_memory
+      changed_when: false
+
+    - name: Display current memory
+      ansible.builtin.debug:
+        msg: "Current memory usage: {{ current_memory.stdout }}%"
+
+  tasks:
+    - name: Clear page cache, dentries and inodes
+      when: clear_caches
+      ansible.builtin.shell: |
+        sync
+        echo 3 > /proc/sys/vm/drop_caches
+      changed_when: true
+
+    - name: Clear systemd journal logs older than 1 day
+      ansible.builtin.command:
+        cmd: journalctl --vacuum-time=1d
+      changed_when: false
+
+    - name: Find and kill zombie processes
+      ansible.builtin.shell: |
+        ps aux | awk '$8 ~ /Z/ {print $2}' | xargs -r kill -9
+      ignore_errors: yes
+      changed_when: false
+
+    - name: Restart memory-heavy services if specified
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        state: restarted
+      loop: "{{ services_to_restart }}"
+      when: services_to_restart | length > 0
+
+    - name: Clear tmp directories
+      ansible.builtin.shell: |
+        find /tmp -type f -atime +1 -delete 2>/dev/null || true
+        find /var/tmp -type f -atime +1 -delete 2>/dev/null || true
+      changed_when: false
+
+  post_tasks:
+    - name: Get new memory usage
+      ansible.builtin.shell: free | grep Mem | awk '{print int($3/$2 * 100)}'
+      register: new_memory
+      changed_when: false
+
+    - name: Display memory relief results
+      ansible.builtin.debug:
+        msg: |
+          Memory before: {{ current_memory.stdout }}%
+          Memory after: {{ new_memory.stdout }}%
+          Freed: {{ current_memory.stdout | int - new_memory.stdout | int }}%

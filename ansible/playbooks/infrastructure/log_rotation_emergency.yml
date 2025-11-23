@@ -1,0 +1,74 @@
+---
+# @name: Emergency Log Rotation
+# @description: Force log rotation and cleanup when disk space is critical
+# @category: infrastructure
+# @incident_types: disk_full, log_overflow, disk_space_critical
+# @requires_approval: false
+# @is_automated: true
+
+- name: Emergency Log Rotation
+  hosts: "{{ target_hosts | default('all') }}"
+  become: yes
+  gather_facts: yes
+
+  vars:
+    compress_old_logs: true
+    archive_days: 7
+    delete_days: 30
+
+  pre_tasks:
+    - name: Get initial disk usage
+      ansible.builtin.shell: df -h / | tail -1 | awk '{print $5}' | tr -d '%'
+      register: initial_disk
+      changed_when: false
+
+  tasks:
+    - name: Force logrotate
+      ansible.builtin.command:
+        cmd: logrotate -f /etc/logrotate.conf
+      ignore_errors: yes
+
+    - name: Compress uncompressed logs
+      when: compress_old_logs
+      ansible.builtin.shell: |
+        find /var/log -name "*.log.*" -not -name "*.gz" -mtime +1 -exec gzip {} \;
+      changed_when: false
+      ignore_errors: yes
+
+    - name: Remove old compressed logs
+      ansible.builtin.shell: |
+        find /var/log -name "*.gz" -mtime +{{ delete_days }} -delete
+      changed_when: false
+
+    - name: Truncate large active logs
+      ansible.builtin.shell: |
+        for log in $(find /var/log -name "*.log" -size +100M); do
+          cp "$log" "${log}.backup"
+          truncate -s 0 "$log"
+          echo "Truncated $log"
+        done
+      register: truncated
+      changed_when: truncated.stdout != ""
+
+    - name: Clean journal logs
+      ansible.builtin.command:
+        cmd: journalctl --vacuum-size=100M
+      changed_when: false
+
+    - name: Remove old audit logs
+      ansible.builtin.shell: |
+        find /var/log/audit -name "audit.log.*" -mtime +{{ archive_days }} -delete 2>/dev/null || true
+      changed_when: false
+
+  post_tasks:
+    - name: Get final disk usage
+      ansible.builtin.shell: df -h / | tail -1 | awk '{print $5}' | tr -d '%'
+      register: final_disk
+      changed_when: false
+
+    - name: Display results
+      ansible.builtin.debug:
+        msg: |
+          Disk usage before: {{ initial_disk.stdout }}%
+          Disk usage after: {{ final_disk.stdout }}%
+          Space freed: {{ initial_disk.stdout | int - final_disk.stdout | int }}%

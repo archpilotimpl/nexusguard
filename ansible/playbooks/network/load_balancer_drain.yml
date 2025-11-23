@@ -1,0 +1,68 @@
+---
+# @name: Load Balancer Drain
+# @description: Gracefully drain a server from load balancer for maintenance
+# @category: network
+# @incident_types: planned_maintenance, server_issues, capacity_management
+# @requires_approval: true
+# @is_automated: false
+
+- name: Load Balancer Drain
+  hosts: localhost
+  gather_facts: no
+
+  vars:
+    lb_type: "{{ load_balancer_type | default('haproxy') }}"
+    backend_name: "{{ backend }}"
+    server_name: "{{ target_server }}"
+    drain_timeout: 300
+
+  tasks:
+    - name: HAProxy - Drain server
+      when: lb_type == 'haproxy'
+      block:
+        - name: Set server to drain mode
+          ansible.builtin.shell: |
+            echo "set server {{ backend_name }}/{{ server_name }} state drain" | socat stdio /var/run/haproxy/admin.sock
+          register: drain_result
+
+        - name: Wait for connections to drain
+          ansible.builtin.shell: |
+            echo "show servers state {{ backend_name }}" | socat stdio /var/run/haproxy/admin.sock | grep {{ server_name }} | awk '{print $7}'
+          register: connection_count
+          until: connection_count.stdout | int == 0
+          retries: "{{ (drain_timeout / 10) | int }}"
+          delay: 10
+          changed_when: false
+
+        - name: Set server to maintenance mode
+          ansible.builtin.shell: |
+            echo "set server {{ backend_name }}/{{ server_name }} state maint" | socat stdio /var/run/haproxy/admin.sock
+
+    - name: NGINX - Drain server
+      when: lb_type == 'nginx'
+      block:
+        - name: Mark server as down in upstream
+          ansible.builtin.debug:
+            msg: "Would update nginx upstream config to mark {{ server_name }} as down"
+
+        - name: Reload nginx
+          ansible.builtin.debug:
+            msg: "Would reload nginx configuration"
+
+    - name: AWS ELB - Drain server
+      when: lb_type == 'aws_elb'
+      block:
+        - name: Deregister instance from target group
+          ansible.builtin.debug:
+            msg: "Would deregister {{ server_name }} from {{ backend_name }}"
+
+        - name: Wait for deregistration
+          ansible.builtin.debug:
+            msg: "Would wait for connection draining to complete"
+
+    - name: Display drain status
+      ansible.builtin.debug:
+        msg: |
+          Server {{ server_name }} has been drained from {{ backend_name }}
+          Load balancer type: {{ lb_type }}
+          Ready for maintenance

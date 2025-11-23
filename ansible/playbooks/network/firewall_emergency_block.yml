@@ -1,0 +1,82 @@
+---
+# @name: Firewall Emergency Block
+# @description: Emergency blocking of malicious IPs or ports
+# @category: security
+# @incident_types: ddos_attack, brute_force, security_breach
+# @requires_approval: true
+# @is_automated: false
+
+- name: Firewall Emergency Block
+  hosts: "{{ target_hosts | default('all') }}"
+  become: yes
+  gather_facts: yes
+
+  vars:
+    block_ips: "{{ malicious_ips | default([]) }}"
+    block_ports: "{{ malicious_ports | default([]) }}"
+    block_duration_hours: "{{ duration | default(24) }}"
+    log_blocked: true
+
+  tasks:
+    - name: Block malicious IPs with iptables
+      ansible.builtin.iptables:
+        chain: INPUT
+        source: "{{ item }}"
+        jump: DROP
+        comment: "Emergency block - {{ ansible_date_time.iso8601 }}"
+      loop: "{{ block_ips }}"
+      when: block_ips | length > 0
+
+    - name: Block malicious ports
+      ansible.builtin.iptables:
+        chain: INPUT
+        protocol: tcp
+        destination_port: "{{ item }}"
+        jump: DROP
+        comment: "Emergency port block - {{ ansible_date_time.iso8601 }}"
+      loop: "{{ block_ports }}"
+      when: block_ports | length > 0
+
+    - name: Log blocked connections
+      when: log_blocked
+      ansible.builtin.iptables:
+        chain: INPUT
+        source: "{{ item }}"
+        jump: LOG
+        log_prefix: "BLOCKED: "
+        log_level: 4
+      loop: "{{ block_ips }}"
+
+    - name: Save iptables rules
+      ansible.builtin.shell: |
+        iptables-save > /etc/iptables/rules.v4
+      when: ansible_os_family == "Debian"
+
+    - name: Schedule unblock
+      ansible.builtin.at:
+        command: |
+          {% for ip in block_ips %}
+          iptables -D INPUT -s {{ ip }} -j DROP
+          iptables -D INPUT -s {{ ip }} -j LOG
+          {% endfor %}
+          {% for port in block_ports %}
+          iptables -D INPUT -p tcp --dport {{ port }} -j DROP
+          {% endfor %}
+          iptables-save > /etc/iptables/rules.v4
+        count: "{{ block_duration_hours }}"
+        units: hours
+      when: block_duration_hours | int > 0
+
+    - name: Display block status
+      ansible.builtin.debug:
+        msg: |
+          === Emergency Firewall Block Applied ===
+          Blocked IPs: {{ block_ips | join(', ') if block_ips else 'None' }}
+          Blocked Ports: {{ block_ports | join(', ') if block_ports else 'None' }}
+          Duration: {{ block_duration_hours }} hours
+          Auto-unblock scheduled: {{ 'Yes' if block_duration_hours | int > 0 else 'No' }}
+
+          To manually unblock:
+          {% for ip in block_ips %}
+          iptables -D INPUT -s {{ ip }} -j DROP
+          {% endfor %}

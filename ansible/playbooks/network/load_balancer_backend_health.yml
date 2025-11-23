@@ -1,0 +1,112 @@
+---
+- name: Load Balancer Backend Health Check and Remediation
+  hosts: load_balancers
+  gather_facts: yes
+  become: yes
+
+  vars:
+    health_threshold_percent: 95
+    auto_disable_unhealthy: true
+    health_check_retries: 3
+    drain_timeout: 300
+
+  tasks:
+    - name: Check backend server health status
+      shell: |
+        # F5 BIG-IP example
+        tmsh show ltm pool {{ pool_name }} members | grep -E "monitor-status|session-status"
+      register: backend_health
+
+    - name: Parse unhealthy backends
+      set_fact:
+        unhealthy_backends: "{{ backend_health.stdout_lines | select('search', 'down|offline') | list }}"
+        total_backends: "{{ backend_health.stdout_lines | select('search', 'monitor-status') | list | length }}"
+
+    - name: Calculate health percentage
+      set_fact:
+        healthy_percent: "{{ ((total_backends | int - unhealthy_backends | length) / total_backends | int) * 100 }}"
+
+    - name: Display backend health status
+      debug:
+        msg: "Backend health: {{ healthy_percent }}% ({{ total_backends | int - unhealthy_backends | length }}/{{ total_backends }})"
+
+    - name: Alert if below threshold
+      uri:
+        url: "{{ webhook_url }}/incidents/create"
+        method: POST
+        body_format: json
+        body:
+          title: "Load Balancer Backend Health Degraded"
+          severity: "critical"
+          description: "Only {{ healthy_percent }}% backends healthy on {{ inventory_hostname }}"
+          service: "network"
+          region: "{{ region }}"
+      when:
+        - healthy_percent | float < health_threshold_percent
+        - webhook_url is defined
+
+    - name: Attempt to re-enable unhealthy backends
+      shell: |
+        tmsh modify ltm pool {{ pool_name }} members {{ item }} session user-enabled
+      loop: "{{ unhealthy_backends }}"
+      when:
+        - auto_disable_unhealthy
+        - unhealthy_backends | length > 0
+
+    - name: Wait for health check
+      wait_for:
+        timeout: 30
+
+    - name: Re-check backend health
+      shell: |
+        tmsh show ltm pool {{ pool_name }} members | grep -E "monitor-status|session-status"
+      register: backend_health_after
+
+    - name: Check SSL/TLS certificate expiration
+      shell: |
+        tmsh list sys crypto cert | grep -E "name|expiration-date"
+      register: ssl_cert_status
+
+    - name: Identify expiring certificates
+      set_fact:
+        expiring_certs: "{{ ssl_cert_status.stdout_lines | select('search', '202[56]') | list }}"
+
+    - name: Alert on expiring SSL certificates
+      uri:
+        url: "{{ webhook_url }}/incidents/create"
+        method: POST
+        body_format: json
+        body:
+          title: "SSL Certificates Expiring Soon"
+          severity: "high"
+          description: "{{ expiring_certs | length }} certificates expiring within 90 days on {{ inventory_hostname }}"
+          service: "security"
+          region: "{{ region }}"
+      when:
+        - expiring_certs | length > 0
+        - webhook_url is defined
+
+    - name: Check active connections
+      shell: |
+        tmsh show ltm pool {{ pool_name }} | grep "current-connections"
+      register: active_connections
+
+    - name: Check SSL TPS
+      shell: |
+        tmsh show sys performance throughput ssl-tps | tail -1
+      register: ssl_tps
+
+    - name: Log load balancer metrics
+      debug:
+        msg:
+          - "Backend health: {{ healthy_percent }}%"
+          - "Active connections: {{ active_connections.stdout }}"
+          - "SSL TPS: {{ ssl_tps.stdout }}"
+
+    - name: Drain unhealthy backends if recovery failed
+      shell: |
+        tmsh modify ltm pool {{ pool_name }} members {{ item }} session user-disabled
+      loop: "{{ unhealthy_backends }}"
+      when:
+        - backend_health_after.stdout is search('down|offline')
+        - auto_disable_unhealthy

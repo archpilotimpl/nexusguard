@@ -1,0 +1,66 @@
+---
+# @name: API Rate Limit Adjustment
+# @description: Temporarily adjust API rate limits during traffic spikes
+# @category: application
+# @incident_types: rate_limit_exceeded, traffic_spike, api_throttling
+# @requires_approval: true
+# @is_automated: false
+
+- name: API Rate Limit Adjustment
+  hosts: "{{ target_hosts | default('app_servers') }}"
+  become: yes
+  gather_facts: no
+
+  vars:
+    config_file: /etc/nexusguard/rate_limits.yml
+    new_limit: "{{ rate_limit | default(1000) }}"
+    duration_minutes: "{{ adjustment_duration | default(30) }}"
+    app_service: nexusguard-app
+
+  tasks:
+    - name: Backup current configuration
+      ansible.builtin.copy:
+        src: "{{ config_file }}"
+        dest: "{{ config_file }}.backup.{{ ansible_date_time.epoch }}"
+        remote_src: yes
+
+    - name: Read current configuration
+      ansible.builtin.slurp:
+        src: "{{ config_file }}"
+      register: current_config
+
+    - name: Display current rate limit
+      ansible.builtin.debug:
+        msg: "Current config: {{ current_config.content | b64decode }}"
+
+    - name: Update rate limit configuration
+      ansible.builtin.lineinfile:
+        path: "{{ config_file }}"
+        regexp: '^rate_limit:'
+        line: "rate_limit: {{ new_limit }}"
+        backup: yes
+
+    - name: Reload application configuration
+      ansible.builtin.systemd:
+        name: "{{ app_service }}"
+        state: reloaded
+
+    - name: Schedule revert
+      ansible.builtin.at:
+        command: |
+          cp {{ config_file }}.backup.{{ ansible_date_time.epoch }} {{ config_file }}
+          systemctl reload {{ app_service }}
+        count: "{{ duration_minutes }}"
+        units: minutes
+      when: duration_minutes | int > 0
+
+    - name: Display adjustment details
+      ansible.builtin.debug:
+        msg: |
+          Rate limit adjusted to: {{ new_limit }} requests/minute
+          Duration: {{ duration_minutes }} minutes
+          Auto-revert scheduled: {{ 'Yes' if duration_minutes | int > 0 else 'No' }}
+
+          To manually revert:
+          cp {{ config_file }}.backup.{{ ansible_date_time.epoch }} {{ config_file }}
+          systemctl reload {{ app_service }}

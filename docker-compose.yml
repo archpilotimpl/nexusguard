@@ -1,0 +1,191 @@
+version: '3.8'
+
+services:
+  # Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: nexusguard-backend
+    ports:
+      - "8090:8090"
+    environment:
+      - SECRET_KEY=dev-secret-key-change-in-production-32chars
+      - DATABASE_URL=postgresql+asyncpg://nocuser:nocpassword@postgres:5432/nexusguard
+      - REDIS_URL=redis://redis:6379/0
+      - PROMETHEUS_URL=http://prometheus:9090
+      - GRAFANA_URL=http://grafana:3000
+      - ANSIBLE_PLAYBOOKS_PATH=/app/ansible/playbooks
+      - ANSIBLE_INVENTORY_PATH=/app/ansible/inventory
+      - DEBUG=true
+      - ENVIRONMENT=development
+    volumes:
+      - ./ansible:/app/ansible:ro
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - nexusguard-network
+    restart: unless-stopped
+
+  # Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    container_name: nexusguard-frontend
+    ports:
+      - "3090:3090"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8090/api/v1
+      - WATCHPACK_POLLING=true
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+    depends_on:
+      - backend
+    networks:
+      - nexusguard-network
+    restart: unless-stopped
+
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: nexusguard-postgres
+    environment:
+      - POSTGRES_USER=nocuser
+      - POSTGRES_PASSWORD=nocpassword
+      - POSTGRES_DB=nexusguard
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    networks:
+      - nexusguard-network
+    restart: unless-stopped
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: nexusguard-redis
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - nexusguard-network
+    restart: unless-stopped
+
+  # Prometheus
+  prometheus:
+    image: prom/prometheus:v2.48.0
+    container_name: nexusguard-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/rules:/etc/prometheus/rules:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    networks:
+      - nexusguard-network
+    restart: unless-stopped
+
+  # Grafana
+  grafana:
+    image: grafana/grafana:10.2.2
+    container_name: nexusguard-grafana
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin123
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SECURITY_ALLOW_EMBEDDING=true
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/etc/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - nexusguard-network
+    restart: unless-stopped
+
+  # Alertmanager
+  alertmanager:
+    image: prom/alertmanager:v0.26.0
+    container_name: nexusguard-alertmanager
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager_data:/alertmanager
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+    networks:
+      - nexusguard-network
+    restart: unless-stopped
+
+  # Sample Data Generator
+  data-generator:
+    build:
+      context: ./scripts
+      dockerfile: Dockerfile.generator
+    container_name: nexusguard-data-generator
+    environment:
+      - PROMETHEUS_PUSHGATEWAY=http://pushgateway:9091
+    depends_on:
+      - pushgateway
+    networks:
+      - nexusguard-network
+    restart: unless-stopped
+
+  # Pushgateway for sample metrics
+  pushgateway:
+    image: prom/pushgateway:v1.6.2
+    container_name: nexusguard-pushgateway
+    ports:
+      - "9091:9091"
+    networks:
+      - nexusguard-network
+    restart: unless-stopped
+
+  # AI Monitoring Agent (CrewAI)
+  monitoring-agent:
+    build:
+      context: ./agents
+      dockerfile: Dockerfile
+    container_name: nexusguard-monitoring-agent
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - ANTHROPIC_MODEL=claude-sonnet-4-5-20250929
+      - MONITORING_INTERVAL_SECONDS=60
+    volumes:
+      - ./agents/learned_playbooks:/app/learned_playbooks
+      - ./ansible/playbooks:/app/ansible/playbooks:ro
+      - ./prometheus/test_data:/app/test_data:ro
+    networks:
+      - nexusguard-network
+    restart: unless-stopped
+    profiles:
+      - monitoring
+
+networks:
+  nexusguard-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  prometheus_data:
+  grafana_data:
+  alertmanager_data:

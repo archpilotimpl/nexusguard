@@ -1,0 +1,72 @@
+---
+# @name: Kubernetes Pod Restart
+# @description: Rolling restart of Kubernetes deployments for stuck or unhealthy pods
+# @category: application
+# @incident_types: pod_crashloop, container_oom, deployment_unhealthy
+# @requires_approval: false
+# @is_automated: false
+
+- name: Kubernetes Pod Restart
+  hosts: localhost
+  gather_facts: no
+
+  vars:
+    namespace: "{{ target_namespace | default('production') }}"
+    deployment: "{{ target_deployment }}"
+    kubectl_context: "{{ kube_context | default('production-cluster') }}"
+
+  tasks:
+    - name: Set kubectl context
+      ansible.builtin.command:
+        cmd: kubectl config use-context {{ kubectl_context }}
+      changed_when: false
+
+    - name: Get current deployment status
+      ansible.builtin.command:
+        cmd: kubectl get deployment {{ deployment }} -n {{ namespace }} -o jsonpath='{.status.availableReplicas}/{.status.replicas}'
+      register: current_status
+      changed_when: false
+
+    - name: Display current status
+      ansible.builtin.debug:
+        msg: "Current replicas: {{ current_status.stdout }}"
+
+    - name: Get pod status before restart
+      ansible.builtin.command:
+        cmd: kubectl get pods -n {{ namespace }} -l app={{ deployment }} -o wide
+      register: pods_before
+      changed_when: false
+
+    - name: Display pods before restart
+      ansible.builtin.debug:
+        msg: "{{ pods_before.stdout_lines }}"
+
+    - name: Perform rolling restart
+      ansible.builtin.command:
+        cmd: kubectl rollout restart deployment/{{ deployment }} -n {{ namespace }}
+      register: restart_result
+
+    - name: Wait for rollout to complete
+      ansible.builtin.command:
+        cmd: kubectl rollout status deployment/{{ deployment }} -n {{ namespace }} --timeout=300s
+      register: rollout_status
+
+    - name: Get pod status after restart
+      ansible.builtin.command:
+        cmd: kubectl get pods -n {{ namespace }} -l app={{ deployment }} -o wide
+      register: pods_after
+      changed_when: false
+
+    - name: Display pods after restart
+      ansible.builtin.debug:
+        msg: "{{ pods_after.stdout_lines }}"
+
+    - name: Verify deployment health
+      ansible.builtin.command:
+        cmd: kubectl get deployment {{ deployment }} -n {{ namespace }} -o jsonpath='{.status.conditions[?(@.type=="Available")].status}'
+      register: health_status
+      changed_when: false
+
+    - name: Display final status
+      ansible.builtin.debug:
+        msg: "Deployment {{ deployment }} is {{ 'HEALTHY' if health_status.stdout == 'True' else 'UNHEALTHY' }}"

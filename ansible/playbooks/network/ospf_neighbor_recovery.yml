@@ -1,0 +1,94 @@
+---
+- name: OSPF Neighbor Recovery and Adjacency Repair
+  hosts: routers
+  gather_facts: yes
+  become: yes
+
+  vars:
+    auto_recovery: true
+    max_wait_time: 120
+    collect_diagnostics: true
+
+  tasks:
+    - name: Check OSPF neighbor status
+      shell: |
+        show ip ospf neighbor | awk 'NR>1 {print $1,$6,$5}'
+      register: ospf_neighbors
+
+    - name: Identify non-full OSPF neighbors
+      set_fact:
+        problem_neighbors: "{{ ospf_neighbors.stdout_lines | reject('search', 'FULL') | list }}"
+        total_neighbors: "{{ ospf_neighbors.stdout_lines | length }}"
+
+    - name: Display OSPF neighbor status
+      debug:
+        msg: "OSPF neighbors not FULL: {{ problem_neighbors | length }}/{{ total_neighbors }}"
+
+    - name: Collect OSPF neighbor details
+      shell: |
+        show ip ospf neighbor {{ item.split()[0] }} detail
+      register: neighbor_details
+      loop: "{{ problem_neighbors }}"
+      when:
+        - problem_neighbors | length > 0
+        - collect_diagnostics
+
+    - name: Check OSPF interface status
+      shell: |
+        show ip ospf interface brief
+      register: ospf_interfaces
+
+    - name: Check for interface errors
+      shell: |
+        show interfaces {{ item }} | grep -E "errors|drops"
+      register: interface_errors
+      loop: "{{ ospf_interfaces.stdout_lines | map('regex_search', '\\S+$') | list }}"
+
+    - name: Clear OSPF process (soft reset)
+      shell: |
+        clear ip ospf process
+      when:
+        - auto_recovery
+        - problem_neighbors | length > 0
+
+    - name: Wait for OSPF convergence
+      wait_for:
+        timeout: "{{ max_wait_time }}"
+      when: problem_neighbors | length > 0
+
+    - name: Verify OSPF neighbor recovery
+      shell: |
+        show ip ospf neighbor | awk 'NR>1 {print $1,$6,$5}'
+      register: ospf_neighbors_after
+      when: problem_neighbors | length > 0
+
+    - name: Check route count
+      shell: |
+        show ip route ospf | count
+      register: ospf_route_count
+
+    - name: Collect OSPF database if issues persist
+      shell: |
+        show ip ospf database > flash:ospf-db-{{ ansible_date_time.epoch }}.txt
+      when:
+        - ospf_neighbors_after.stdout is defined
+        - ospf_neighbors_after.stdout is not search('FULL')
+        - collect_diagnostics
+
+    - name: Check for OSPF errors in logs
+      shell: |
+        show logging | grep -i ospf | tail -20
+      register: ospf_logs
+
+    - name: Send recovery notification
+      uri:
+        url: "{{ webhook_url }}/incidents/create"
+        method: POST
+        body_format: json
+        body:
+          title: "OSPF Neighbor Recovery on {{ inventory_hostname }}"
+          severity: "{{ 'critical' if ospf_neighbors_after.stdout is not search('FULL') else 'info' }}"
+          description: "OSPF neighbors not FULL: {{ problem_neighbors | length }}. Routes: {{ ospf_route_count.stdout }}"
+          service: "network"
+          region: "{{ region }}"
+      when: webhook_url is defined

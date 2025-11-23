@@ -1,0 +1,121 @@
+---
+# @name: High Error Rate Investigation
+# @description: Investigate and diagnose high error rates in application
+# @category: application
+# @incident_types: high_error_rate, transaction_failures
+# @requires_approval: false
+# @is_automated: false
+
+- name: High Error Rate Investigation
+  hosts: "{{ target_hosts | default('app_servers') }}"
+  become: yes
+  gather_facts: yes
+
+  vars:
+    log_lines_to_check: 500
+    app_log_path: /var/log/{{ app_service_name }}/application.log
+    error_log_path: /var/log/{{ app_service_name }}/error.log
+
+  tasks:
+    - name: Collect System Information
+      block:
+        - name: Get system uptime and load
+          ansible.builtin.command: uptime
+          register: uptime_result
+          changed_when: false
+
+        - name: Get memory usage
+          ansible.builtin.command: free -h
+          register: memory_result
+          changed_when: false
+
+        - name: Get disk usage
+          ansible.builtin.command: df -h
+          register: disk_result
+          changed_when: false
+
+        - name: Check service status
+          ansible.builtin.systemd:
+            name: "{{ app_service_name }}"
+          register: service_status
+
+    - name: Analyze Application Logs
+      block:
+        - name: Get recent errors from application log
+          ansible.builtin.command:
+            cmd: tail -n {{ log_lines_to_check }} {{ app_log_path }} | grep -i "error\|exception\|fail" | tail -50
+          register: app_errors
+          ignore_errors: yes
+          changed_when: false
+
+        - name: Get error log tail
+          ansible.builtin.command:
+            cmd: tail -n 100 {{ error_log_path }}
+          register: error_log
+          ignore_errors: yes
+          changed_when: false
+
+        - name: Count errors by type
+          ansible.builtin.shell: |
+            tail -n {{ log_lines_to_check }} {{ app_log_path }} | \
+            grep -oE "(ConnectionError|TimeoutError|DatabaseError|ValidationError)" | \
+            sort | uniq -c | sort -rn
+          register: error_counts
+          ignore_errors: yes
+          changed_when: false
+
+    - name: Check Database Connectivity
+      block:
+        - name: Test database connection
+          ansible.builtin.command:
+            cmd: pg_isready -h {{ db_host | default('localhost') }} -p 5432
+          register: db_check
+          ignore_errors: yes
+          changed_when: false
+
+        - name: Check active connections
+          ansible.builtin.shell: |
+            psql -h {{ db_host | default('localhost') }} -U {{ db_user | default('app') }} -c "SELECT count(*) FROM pg_stat_activity;" 2>/dev/null || echo "Unable to query"
+          register: db_connections
+          ignore_errors: yes
+          changed_when: false
+
+    - name: Check External Dependencies
+      block:
+        - name: Check network connectivity to external services
+          ansible.builtin.uri:
+            url: "{{ item }}"
+            method: GET
+            timeout: 10
+          loop: "{{ external_health_endpoints | default([]) }}"
+          register: external_checks
+          ignore_errors: yes
+
+    - name: Generate Investigation Report
+      block:
+        - name: Compile investigation results
+          ansible.builtin.set_fact:
+            investigation_report:
+              host: "{{ inventory_hostname }}"
+              region: "{{ region }}"
+              timestamp: "{{ ansible_date_time.iso8601 }}"
+              system:
+                uptime: "{{ uptime_result.stdout }}"
+                memory: "{{ memory_result.stdout_lines }}"
+                disk: "{{ disk_result.stdout_lines }}"
+              service:
+                status: "{{ service_status.status.ActiveState }}"
+              errors:
+                recent_errors: "{{ app_errors.stdout_lines | default([]) }}"
+                error_counts: "{{ error_counts.stdout_lines | default([]) }}"
+              database:
+                reachable: "{{ db_check.rc == 0 }}"
+              recommended_actions:
+                - "Review error patterns above"
+                - "Check database connection pool"
+                - "Verify external service availability"
+                - "Consider rolling restart if errors persist"
+
+        - name: Display investigation report
+          ansible.builtin.debug:
+            var: investigation_report

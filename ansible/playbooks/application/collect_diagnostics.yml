@@ -1,0 +1,76 @@
+---
+# @name: Collect System Diagnostics
+# @description: Gather comprehensive diagnostic information for incident analysis
+# @category: infrastructure
+# @incident_types: any, troubleshooting, performance_degradation
+# @requires_approval: false
+# @is_automated: true
+
+- name: Collect System Diagnostics
+  hosts: "{{ target_hosts | default('all') }}"
+  become: yes
+  gather_facts: yes
+
+  vars:
+    diagnostic_dir: /tmp/diagnostics_{{ ansible_date_time.epoch }}
+    collect_logs: true
+    collect_metrics: true
+    collect_network: true
+
+  tasks:
+    - name: Create diagnostic directory
+      ansible.builtin.file:
+        path: "{{ diagnostic_dir }}"
+        state: directory
+        mode: '0755'
+
+    - name: Collect system information
+      ansible.builtin.shell: |
+        echo "=== System Info ===" > {{ diagnostic_dir }}/system_info.txt
+        uname -a >> {{ diagnostic_dir }}/system_info.txt
+        echo "" >> {{ diagnostic_dir }}/system_info.txt
+        echo "=== Uptime ===" >> {{ diagnostic_dir }}/system_info.txt
+        uptime >> {{ diagnostic_dir }}/system_info.txt
+        echo "" >> {{ diagnostic_dir }}/system_info.txt
+        echo "=== Memory ===" >> {{ diagnostic_dir }}/system_info.txt
+        free -h >> {{ diagnostic_dir }}/system_info.txt
+        echo "" >> {{ diagnostic_dir }}/system_info.txt
+        echo "=== Disk ===" >> {{ diagnostic_dir }}/system_info.txt
+        df -h >> {{ diagnostic_dir }}/system_info.txt
+        echo "" >> {{ diagnostic_dir }}/system_info.txt
+        echo "=== Top Processes ===" >> {{ diagnostic_dir }}/system_info.txt
+        ps aux --sort=-%cpu | head -20 >> {{ diagnostic_dir }}/system_info.txt
+      changed_when: false
+
+    - name: Collect network diagnostics
+      when: collect_network
+      ansible.builtin.shell: |
+        echo "=== Network Interfaces ===" > {{ diagnostic_dir }}/network_info.txt
+        ip addr >> {{ diagnostic_dir }}/network_info.txt
+        echo "" >> {{ diagnostic_dir }}/network_info.txt
+        echo "=== Routing Table ===" >> {{ diagnostic_dir }}/network_info.txt
+        ip route >> {{ diagnostic_dir }}/network_info.txt
+        echo "" >> {{ diagnostic_dir }}/network_info.txt
+        echo "=== Listening Ports ===" >> {{ diagnostic_dir }}/network_info.txt
+        ss -tlnp >> {{ diagnostic_dir }}/network_info.txt
+        echo "" >> {{ diagnostic_dir }}/network_info.txt
+        echo "=== Connections ===" >> {{ diagnostic_dir }}/network_info.txt
+        ss -s >> {{ diagnostic_dir }}/network_info.txt
+      changed_when: false
+
+    - name: Collect recent system logs
+      when: collect_logs
+      ansible.builtin.shell: |
+        journalctl --since "1 hour ago" --no-pager > {{ diagnostic_dir }}/system_logs.txt 2>&1 || true
+        dmesg | tail -500 > {{ diagnostic_dir }}/dmesg.txt 2>&1 || true
+      changed_when: false
+
+    - name: Create diagnostic archive
+      ansible.builtin.archive:
+        path: "{{ diagnostic_dir }}"
+        dest: "/tmp/diagnostics_{{ inventory_hostname }}_{{ ansible_date_time.epoch }}.tar.gz"
+        format: gz
+
+    - name: Display diagnostic location
+      ansible.builtin.debug:
+        msg: "Diagnostics collected at /tmp/diagnostics_{{ inventory_hostname }}_{{ ansible_date_time.epoch }}.tar.gz"

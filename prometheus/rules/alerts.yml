@@ -1,0 +1,243 @@
+# NexusGuard NOC - Alert Rules
+groups:
+  # Transaction Alerts
+  - name: transaction_alerts
+    rules:
+      - alert: HighTransactionErrorRate
+        expr: |
+          (
+            sum(rate(noc_transactions_total{status="failure"}[5m])) by (region)
+            /
+            sum(rate(noc_transactions_total[5m])) by (region)
+          ) * 100 > 5
+        for: 5m
+        labels:
+          severity: high
+          category: application
+        annotations:
+          summary: "High transaction error rate in {{ $labels.region }}"
+          description: "Transaction error rate is {{ $value | printf \"%.2f\" }}% in {{ $labels.region }} (threshold: 5%)"
+          runbook_url: "https://runbooks.nexusguard.io/high-error-rate"
+
+      - alert: TransactionVolumeSpike
+        expr: |
+          (
+            sum(rate(noc_transactions_total[5m])) by (region)
+            /
+            sum(rate(noc_transactions_total[1h] offset 1h)) by (region)
+          ) > 2
+        for: 10m
+        labels:
+          severity: medium
+          category: application
+        annotations:
+          summary: "Unusual transaction volume spike in {{ $labels.region }}"
+          description: "Transaction volume is {{ $value | printf \"%.1f\" }}x higher than previous hour in {{ $labels.region }}"
+
+      - alert: TransactionVolumeDrop
+        expr: |
+          (
+            sum(rate(noc_transactions_total[5m])) by (region)
+            /
+            sum(rate(noc_transactions_total[1h] offset 1h)) by (region)
+          ) < 0.3
+        for: 10m
+        labels:
+          severity: high
+          category: application
+        annotations:
+          summary: "Significant transaction volume drop in {{ $labels.region }}"
+          description: "Transaction volume dropped to {{ $value | printf \"%.1f\" }}x of previous hour in {{ $labels.region }}"
+
+      - alert: HighTransactionLatency
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(noc_transaction_latency_bucket[5m])) by (le, region)
+          ) * 1000 > 2000
+        for: 5m
+        labels:
+          severity: high
+          category: application
+        annotations:
+          summary: "High P95 transaction latency in {{ $labels.region }}"
+          description: "P95 latency is {{ $value | printf \"%.0f\" }}ms in {{ $labels.region }} (threshold: 2000ms)"
+          runbook_url: "https://runbooks.nexusguard.io/high-latency"
+
+  # Blockchain Alerts
+  - name: blockchain_alerts
+    rules:
+      - alert: BlockchainCommitFailures
+        expr: |
+          sum(rate(noc_blockchain_failures_total[5m])) by (region) > 0
+        for: 5m
+        labels:
+          severity: critical
+          category: blockchain
+        annotations:
+          summary: "Blockchain commit failures detected in {{ $labels.region }}"
+          description: "{{ $value | printf \"%.2f\" }} blockchain failures per second in {{ $labels.region }}"
+          runbook_url: "https://runbooks.nexusguard.io/blockchain-failure"
+
+      - alert: HashMismatchDetected
+        expr: |
+          sum(rate(noc_hash_mismatch_total[5m])) by (region) > 0
+        for: 1m
+        labels:
+          severity: critical
+          category: security
+        annotations:
+          summary: "Hash mismatch detected - potential tampering in {{ $labels.region }}"
+          description: "Hash mismatch rate: {{ $value | printf \"%.2f\" }}/s in {{ $labels.region }}. Investigate immediately."
+          runbook_url: "https://runbooks.nexusguard.io/hash-mismatch"
+
+  # Network Alerts
+  - name: network_alerts
+    rules:
+      - alert: NetworkDeviceDown
+        expr: noc_device_up == 0
+        for: 2m
+        labels:
+          severity: critical
+          category: network
+        annotations:
+          summary: "Network device {{ $labels.device }} is down"
+          description: "Device {{ $labels.device }} in {{ $labels.region }} has been unreachable for more than 2 minutes"
+          runbook_url: "https://runbooks.nexusguard.io/device-down"
+
+      - alert: HighInterfaceUtilization
+        expr: noc_interface_utilization > 85
+        for: 10m
+        labels:
+          severity: medium
+          category: network
+        annotations:
+          summary: "High interface utilization on {{ $labels.device }}"
+          description: "Interface {{ $labels.interface }} on {{ $labels.device }} is at {{ $value | printf \"%.1f\" }}% utilization"
+
+      - alert: HighFirewallDenyRate
+        expr: |
+          rate(noc_firewall_denies_total[5m]) > 100
+        for: 5m
+        labels:
+          severity: medium
+          category: security
+        annotations:
+          summary: "High firewall deny rate in {{ $labels.region }}"
+          description: "Firewall is denying {{ $value | printf \"%.0f\" }} connections/sec in {{ $labels.region }}"
+
+  # Infrastructure Alerts
+  - name: infrastructure_alerts
+    rules:
+      - alert: HighCPUUsage
+        expr: noc_server_cpu_usage > 80
+        for: 10m
+        labels:
+          severity: medium
+          category: infrastructure
+        annotations:
+          summary: "High CPU usage on {{ $labels.instance }}"
+          description: "CPU usage is {{ $value | printf \"%.1f\" }}% on {{ $labels.instance }}"
+          runbook_url: "https://runbooks.nexusguard.io/high-cpu"
+
+      - alert: HighMemoryUsage
+        expr: noc_server_memory_usage > 85
+        for: 10m
+        labels:
+          severity: high
+          category: infrastructure
+        annotations:
+          summary: "High memory usage on {{ $labels.instance }}"
+          description: "Memory usage is {{ $value | printf \"%.1f\" }}% on {{ $labels.instance }}"
+          runbook_url: "https://runbooks.nexusguard.io/high-memory"
+
+      - alert: DiskSpaceLow
+        expr: noc_server_disk_usage > 90
+        for: 5m
+        labels:
+          severity: high
+          category: infrastructure
+        annotations:
+          summary: "Low disk space on {{ $labels.instance }}"
+          description: "Disk usage is {{ $value | printf \"%.1f\" }}% on {{ $labels.instance }}"
+          runbook_url: "https://runbooks.nexusguard.io/low-disk"
+
+      - alert: ServerDown
+        expr: noc_server_up == 0
+        for: 1m
+        labels:
+          severity: critical
+          category: infrastructure
+        annotations:
+          summary: "Server {{ $labels.instance }} is down"
+          description: "Server {{ $labels.instance }} in {{ $labels.region }} is not responding"
+          runbook_url: "https://runbooks.nexusguard.io/server-down"
+
+  # Database Alerts
+  - name: database_alerts
+    rules:
+      - alert: HighDatabaseConnections
+        expr: |
+          (noc_db_connections_active / noc_db_connections_max) * 100 > 80
+        for: 5m
+        labels:
+          severity: high
+          category: database
+        annotations:
+          summary: "High database connection usage"
+          description: "Database connections at {{ $value | printf \"%.1f\" }}% capacity"
+          runbook_url: "https://runbooks.nexusguard.io/db-connections"
+
+      - alert: HighDatabaseQueryLatency
+        expr: noc_db_query_latency_seconds * 1000 > 500
+        for: 5m
+        labels:
+          severity: medium
+          category: database
+        annotations:
+          summary: "High database query latency"
+          description: "Average query latency is {{ $value | printf \"%.0f\" }}ms (threshold: 500ms)"
+
+      - alert: DatabaseReplicationLag
+        expr: noc_db_replication_lag_seconds > 30
+        for: 5m
+        labels:
+          severity: high
+          category: database
+        annotations:
+          summary: "Database replication lag detected"
+          description: "Replication lag is {{ $value | printf \"%.1f\" }}s (threshold: 30s)"
+          runbook_url: "https://runbooks.nexusguard.io/replication-lag"
+
+  # SLO Alerts
+  - name: slo_alerts
+    rules:
+      - alert: SLOAvailabilityBreach
+        expr: |
+          (
+            1 - (
+              sum(rate(noc_transactions_total{status="failure"}[30m]))
+              /
+              sum(rate(noc_transactions_total[30m]))
+            )
+          ) * 100 < 99.9
+        for: 5m
+        labels:
+          severity: critical
+          category: slo
+        annotations:
+          summary: "Availability SLO breach"
+          description: "Current availability is {{ $value | printf \"%.3f\" }}% (SLO: 99.9%)"
+
+      - alert: ErrorBudgetBurnRate
+        expr: |
+          sum(rate(noc_transactions_total{status="failure"}[1h]))
+          /
+          sum(rate(noc_transactions_total[1h]))
+          > 0.001 * 14.4
+        for: 5m
+        labels:
+          severity: high
+          category: slo
+        annotations:
+          summary: "High error budget burn rate"
+          description: "Error budget is being consumed at {{ $value | printf \"%.2f\" }}x the sustainable rate"

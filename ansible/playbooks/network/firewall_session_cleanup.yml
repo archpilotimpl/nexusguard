@@ -1,0 +1,67 @@
+---
+- name: Firewall Session Cleanup and Optimization
+  hosts: firewalls
+  gather_facts: yes
+  become: yes
+
+  vars:
+    session_threshold_percent: 75
+    cleanup_mode: "safe"  # safe or aggressive
+    backup_config: true
+
+  tasks:
+    - name: Check firewall session count
+      shell: |
+        # Command varies by vendor (Palo Alto, Fortinet, Cisco ASA)
+        # This is a generic example
+        show session info | grep "Session Count"
+      register: session_info
+
+    - name: Calculate session utilization
+      set_fact:
+        current_sessions: "{{ session_info.stdout | regex_search('\\d+') }}"
+        session_util_percent: "{{ ((session_info.stdout | regex_search('\\d+') | int) / firewall_session_max | int) * 100 }}"
+
+    - name: Display current session utilization
+      debug:
+        msg: "Current session utilization: {{ session_util_percent }}% ({{ current_sessions }}/{{ firewall_session_max }})"
+
+    - name: Backup firewall configuration
+      shell: |
+        backup-config firewall-backup-{{ ansible_date_time.epoch }}.xml
+      when: backup_config
+
+    - name: Clear idle sessions (safe mode)
+      shell: |
+        clear session idle-timeout {{ idle_timeout | default(300) }}
+      when:
+        - session_util_percent | float > session_threshold_percent
+        - cleanup_mode == "safe"
+
+    - name: Clear specific high-volume sessions (aggressive mode)
+      shell: |
+        clear session filter source-ip {{ item }}
+      loop: "{{ high_volume_ips | default([]) }}"
+      when:
+        - session_util_percent | float > session_threshold_percent
+        - cleanup_mode == "aggressive"
+
+    - name: Verify session count after cleanup
+      shell: |
+        show session info | grep "Session Count"
+      register: session_info_after
+
+    - name: Log cleanup results
+      debug:
+        msg: "Session cleanup completed. Before: {{ current_sessions }}, After: {{ session_info_after.stdout | regex_search('\\d+') }}"
+
+    - name: Send notification
+      uri:
+        url: "{{ webhook_url }}/incidents/notify"
+        method: POST
+        body_format: json
+        body:
+          title: "Firewall Session Cleanup Completed"
+          severity: "info"
+          message: "Session utilization reduced from {{ session_util_percent }}% on {{ inventory_hostname }}"
+      when: webhook_url is defined

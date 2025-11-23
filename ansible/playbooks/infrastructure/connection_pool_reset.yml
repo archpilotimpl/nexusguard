@@ -1,0 +1,73 @@
+---
+# @name: Connection Pool Reset
+# @description: Reset database and cache connection pools to resolve connection exhaustion
+# @category: database
+# @incident_types: connection_exhaustion, pool_timeout, database_connection_error
+# @requires_approval: false
+# @is_automated: false
+
+- name: Connection Pool Reset
+  hosts: "{{ target_hosts | default('app_servers') }}"
+  become: yes
+  gather_facts: yes
+  serial: 1
+
+  vars:
+    app_service: nexusguard-app
+    health_endpoint: "http://localhost:8080/health"
+    max_wait_seconds: 60
+
+  pre_tasks:
+    - name: Check current connections
+      ansible.builtin.shell: |
+        ss -tn state established '( dport = :5432 or dport = :6379 )' | wc -l
+      register: current_connections
+      changed_when: false
+
+    - name: Display current connection count
+      ansible.builtin.debug:
+        msg: "Current DB/Redis connections: {{ current_connections.stdout }}"
+
+  tasks:
+    - name: Gracefully stop application
+      ansible.builtin.systemd:
+        name: "{{ app_service }}"
+        state: stopped
+
+    - name: Wait for connections to close
+      ansible.builtin.shell: |
+        ss -tn state established '( dport = :5432 or dport = :6379 )' | wc -l
+      register: remaining_connections
+      until: remaining_connections.stdout | int < 5
+      retries: 12
+      delay: 5
+      changed_when: false
+
+    - name: Start application
+      ansible.builtin.systemd:
+        name: "{{ app_service }}"
+        state: started
+
+    - name: Wait for application to be healthy
+      ansible.builtin.uri:
+        url: "{{ health_endpoint }}"
+        method: GET
+        status_code: 200
+      register: health_check
+      until: health_check.status == 200
+      retries: "{{ (max_wait_seconds / 5) | int }}"
+      delay: 5
+
+  post_tasks:
+    - name: Check new connection count
+      ansible.builtin.shell: |
+        ss -tn state established '( dport = :5432 or dport = :6379 )' | wc -l
+      register: new_connections
+      changed_when: false
+
+    - name: Display results
+      ansible.builtin.debug:
+        msg: |
+          Connections before: {{ current_connections.stdout }}
+          Connections after: {{ new_connections.stdout }}
+          Service status: healthy

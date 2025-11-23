@@ -1,0 +1,79 @@
+---
+# @name: Service Health Check
+# @description: Comprehensive health check for all application services
+# @category: application
+# @incident_types: service_degradation, health_check_failure, monitoring
+# @requires_approval: false
+# @is_automated: true
+
+- name: Service Health Check
+  hosts: "{{ target_hosts | default('app_servers') }}"
+  become: yes
+  gather_facts: yes
+
+  vars:
+    services_to_check:
+      - nexusguard-app
+      - nginx
+      - redis
+    health_endpoints:
+      - url: "http://localhost:8080/health"
+        name: "Application API"
+      - url: "http://localhost:8080/ready"
+        name: "Readiness"
+
+  tasks:
+    - name: Check systemd services
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+      register: service_status
+      loop: "{{ services_to_check }}"
+      ignore_errors: yes
+
+    - name: Report service status
+      ansible.builtin.debug:
+        msg: "{{ item.item }}: {{ item.status.ActiveState | default('not found') }}"
+      loop: "{{ service_status.results }}"
+
+    - name: Check health endpoints
+      ansible.builtin.uri:
+        url: "{{ item.url }}"
+        method: GET
+        timeout: 10
+        status_code: [200, 204]
+      register: health_results
+      loop: "{{ health_endpoints }}"
+      ignore_errors: yes
+
+    - name: Report endpoint health
+      ansible.builtin.debug:
+        msg: "{{ item.item.name }}: {{ 'HEALTHY' if item.status == 200 else 'UNHEALTHY (' + (item.status | string) + ')' }}"
+      loop: "{{ health_results.results }}"
+
+    - name: Check process count
+      ansible.builtin.shell: pgrep -c -f "{{ item }}" || echo "0"
+      register: process_counts
+      loop:
+        - python
+        - node
+        - java
+      changed_when: false
+
+    - name: Check open file descriptors
+      ansible.builtin.shell: |
+        cat /proc/sys/fs/file-nr | awk '{print "Used: " $1 ", Max: " $3}'
+      register: fd_info
+      changed_when: false
+
+    - name: Generate health report
+      ansible.builtin.set_fact:
+        health_report:
+          host: "{{ inventory_hostname }}"
+          timestamp: "{{ ansible_date_time.iso8601 }}"
+          services: "{{ service_status.results | map(attribute='status.ActiveState') | list }}"
+          endpoints: "{{ health_results.results | map(attribute='status') | list }}"
+          file_descriptors: "{{ fd_info.stdout }}"
+
+    - name: Display health report
+      ansible.builtin.debug:
+        var: health_report

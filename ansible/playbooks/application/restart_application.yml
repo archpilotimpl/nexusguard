@@ -1,0 +1,86 @@
+---
+# @name: Restart Application Service
+# @description: Safely restarts the application service with health checks
+# @category: application
+# @incident_types: app_down, high_error_rate, high_latency
+# @requires_approval: false
+# @is_automated: false
+
+- name: Restart Application Service
+  hosts: "{{ target_hosts | default('app_servers') }}"
+  become: yes
+  serial: 1  # Rolling restart
+  max_fail_percentage: 0
+
+  vars:
+    health_check_url: "http://localhost:8080/health"
+    health_check_retries: 30
+    health_check_delay: 10
+
+  pre_tasks:
+    - name: Verify service exists
+      ansible.builtin.systemd:
+        name: "{{ app_service_name }}"
+      register: service_status
+      check_mode: yes
+
+    - name: Check current health status
+      ansible.builtin.uri:
+        url: "{{ health_check_url }}"
+        method: GET
+        status_code: 200
+      register: pre_health
+      ignore_errors: yes
+
+    - name: Log pre-restart status
+      ansible.builtin.debug:
+        msg: "Pre-restart health check: {{ 'PASS' if pre_health.status == 200 else 'FAIL' }}"
+
+  tasks:
+    - name: Stop application service gracefully
+      ansible.builtin.systemd:
+        name: "{{ app_service_name }}"
+        state: stopped
+      register: stop_result
+
+    - name: Wait for connections to drain
+      ansible.builtin.pause:
+        seconds: 5
+
+    - name: Clear application cache if needed
+      ansible.builtin.file:
+        path: /var/cache/{{ app_service_name }}
+        state: absent
+      when: clear_cache | default(false) | bool
+      ignore_errors: yes
+
+    - name: Start application service
+      ansible.builtin.systemd:
+        name: "{{ app_service_name }}"
+        state: started
+        enabled: yes
+
+    - name: Wait for service to be ready
+      ansible.builtin.uri:
+        url: "{{ health_check_url }}"
+        method: GET
+        status_code: 200
+      register: health_check
+      until: health_check.status == 200
+      retries: "{{ health_check_retries }}"
+      delay: "{{ health_check_delay }}"
+
+  post_tasks:
+    - name: Verify service is running
+      ansible.builtin.systemd:
+        name: "{{ app_service_name }}"
+      register: final_status
+
+    - name: Log restart completion
+      ansible.builtin.debug:
+        msg: "Service {{ app_service_name }} restarted successfully on {{ inventory_hostname }}"
+
+  handlers:
+    - name: Send notification
+      ansible.builtin.debug:
+        msg: "Notification: Application restarted on {{ inventory_hostname }}"
