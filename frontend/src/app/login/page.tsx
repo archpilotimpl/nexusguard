@@ -56,6 +56,11 @@ export default function LoginPage() {
     }
   };
 
+  const handleAuth0Login = () => {
+    // Redirect to Auth0 login endpoint
+    window.location.href = '/api/auth/login';
+  };
+
   return (
     <div className="flex min-h-screen flex-col bg-gray-100">
       <div className="flex flex-1 items-center justify-center px-4">
@@ -73,6 +78,28 @@ export default function LoginPage() {
             <p className="mt-2 text-sm text-gray-500">
               Network Operations Center
             </p>
+          </div>
+
+          {/* Auth0 Login Button */}
+          <button
+            type="button"
+            onClick={handleAuth0Login}
+            className="w-full mb-6 rounded-md bg-black px-4 py-2 text-white font-medium hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-2 transition flex items-center justify-center gap-2"
+          >
+            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 0a12 12 0 1012 12A12 12 0 0012 0zm0 3.5a4.5 4.5 0 110 9 4.5 4.5 0 010-9z" />
+            </svg>
+            Sign in with Auth0
+          </button>
+
+          {/* Divider */}
+          <div className="relative mb-6">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-gray-300"></div>
+            </div>
+            <div className="relative flex justify-center text-sm">
+              <span className="px-2 bg-white text-gray-500">Or sign in with credentials</span>
+            </div>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">

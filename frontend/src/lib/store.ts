@@ -35,12 +35,22 @@ export const useAuthStore = create<AuthState>()(
       logout: () => {
         localStorage.removeItem('access_token');
         localStorage.removeItem('refresh_token');
+
+        // Clear all auth-related cookies
+        document.cookie = 'auth_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+        document.cookie = 'user_email=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+
         set({
           isAuthenticated: false,
           user: null,
           accessToken: null,
           refreshToken: null,
         });
+
+        // Redirect to login page
+        if (typeof window !== 'undefined') {
+          window.location.href = '/login';
+        }
       },
     }),
     {

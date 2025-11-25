@@ -7,7 +7,7 @@ import time
 
 from app.core.config import settings
 from app.core.logging import setup_logging, get_logger, generate_correlation_id
-from app.api import health, metrics, incidents, ansible, auth, compliance, vault
+from app.api import health, metrics, incidents, ansible, auth, compliance, vault, auth0
 
 # Setup logging
 setup_logging()
@@ -92,6 +92,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 # Include routers
 app.include_router(health.router, prefix=settings.API_V1_PREFIX)
 app.include_router(auth.router, prefix=settings.API_V1_PREFIX)
+app.include_router(auth0.router, prefix=settings.API_V1_PREFIX)
 app.include_router(metrics.router, prefix=settings.API_V1_PREFIX)
 app.include_router(incidents.router, prefix=settings.API_V1_PREFIX)
 app.include_router(ansible.router, prefix=settings.API_V1_PREFIX)
