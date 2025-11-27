@@ -449,8 +449,9 @@ cache/
 test_data/
 sample_data/
 
-# Metric exports
-metrics/
+# Metric exports (but not frontend/src/app/metrics which contains source code)
+**/metrics/
+!frontend/src/app/metrics/
 *.metrics
 
 # Performance test results
