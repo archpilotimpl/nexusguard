@@ -89,83 +89,8 @@ export default function LoginPage() {
             <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
               <path d="M12 0a12 12 0 1012 12A12 12 0 0012 0zm0 3.5a4.5 4.5 0 110 9 4.5 4.5 0 010-9z" />
             </svg>
-            Sign in with Auth0
+            Sign in
           </button>
-
-          {/* Divider */}
-          <div className="relative mb-6">
-            <div className="absolute inset-0 flex items-center">
-              <div className="w-full border-t border-gray-300"></div>
-            </div>
-            <div className="relative flex justify-center text-sm">
-              <span className="px-2 bg-white text-gray-500">Or sign in with credentials</span>
-            </div>
-          </div>
-
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700">
-                Email
-              </label>
-              <input
-                id="email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
-              />
-            </div>
-
-            <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700">
-                Password
-              </label>
-              <input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
-              />
-            </div>
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full rounded-md bg-primary-600 px-4 py-2 text-white font-medium hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 disabled:opacity-50"
-            >
-              {loading ? 'Signing in...' : 'Sign in'}
-            </button>
-          </form>
-
-          <div className="mt-6">
-            <p className="text-center text-xs text-gray-500 mb-3">Demo Accounts</p>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => fillDemoCredentials('admin')}
-                className="flex-1 rounded border border-gray-300 px-2 py-1 text-xs hover:bg-gray-50"
-              >
-                Admin
-              </button>
-              <button
-                type="button"
-                onClick={() => fillDemoCredentials('engineer')}
-                className="flex-1 rounded border border-gray-300 px-2 py-1 text-xs hover:bg-gray-50"
-              >
-                Engineer
-              </button>
-              <button
-                type="button"
-                onClick={() => fillDemoCredentials('viewer')}
-                className="flex-1 rounded border border-gray-300 px-2 py-1 text-xs hover:bg-gray-50"
-              >
-                Viewer
-              </button>
-            </div>
-          </div>
         </div>
         </div>
       </div>

@@ -34,7 +34,7 @@ async def verify_auth0_token(authorization: Optional[str] = Header(None)):
     async with httpx.AsyncClient() as client:
         try:
             # Get JWKS from Auth0
-            response = await client.get(f"{domain}/.well-known/jwks.json")
+            response = await client.get(f"https://{domain}/.well-known/jwks.json")
             if response.status_code != 200:
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
@@ -92,7 +92,7 @@ async def get_token_info(
         try:
             # Introspect token with Auth0
             response = await client.post(
-                f"{domain}/oauth/token/introspect",
+                f"https://{domain}/oauth/token/introspect",
                 data={
                     "client_id": os.getenv("AUTH0_CLIENT_ID"),
                     "client_secret": os.getenv("AUTH0_CLIENT_SECRET"),

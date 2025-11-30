@@ -24,13 +24,67 @@ const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
+  withCredentials: true, // Send cookies with requests
 });
 
-// Add auth token to requests
+// Helper function to extract Auth0 token from cookies (only JS-readable cookies)
+function getAuthTokenFromCookie(): string | null {
+  console.log("[api] Attempting to read auth_token from cookies");
+    if (typeof document === 'undefined') return null;
+  console.log("[api] document.cookie:", document.cookie);
+  const cookies = document.cookie.split(';');
+  console.log("[api] Parsed cookies:", cookies);
+  for (const cookie of cookies) {
+    const [name, value] = cookie.trim().split('=');
+
+    console.log("[api] Checking cookie:", name);
+    if (name === 'auth_token') {
+        console.log("[api] Found auth_token cookie");
+      // Note: usually httpOnly, so this will often be undefined. Keep for non-httpOnly setups.
+      return decodeURIComponent(value);
+    }
+  }
+  return null;
+}
+
+// Add auth token to requests - reads from cookie when available
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('access_token');
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
+  try {
+      console.log("[api] Running request interceptor to attach auth token");
+    const token = getAuthTokenFromCookie();
+    if (token) {
+      config.headers = config.headers || {};
+      config.headers.Authorization = `Bearer ${token}`;
+
+      // small debug log to confirm interceptor ran
+      console.debug('[api] Attached Authorization header from cookie');
+
+      // Decode token to extract user details and log to console
+      try {
+        const tokenParts = token.split('.');
+        if (tokenParts.length === 3) {
+          const payload = JSON.parse(atob(tokenParts[1]));
+          console.log('=== AUTH TOKEN DETAILS ===');
+          console.log('User ID:', payload.sub);
+          console.log('User Email:', payload.email);
+          console.log('User Name:', payload.name);
+          // Prefer the namespaced Auth0 custom claim, then `roles`, then single `role`
+          const rolesClaim = payload['https://nexusguard.com/roles'] || payload.roles || payload.role || null;
+          console.log('Roles:', rolesClaim || 'No roles');
+          console.log('Token Expiry:', new Date(payload.exp * 1000).toISOString());
+          console.log('Issued At:', new Date(payload.iat * 1000).toISOString());
+          console.log('Audience:', payload.aud);
+          console.log('Issuer:', payload.iss);
+          console.log('=========================');
+        }
+      } catch (error) {
+        console.error('Error decoding token:', error);
+      }
+    } else {
+      console.debug('[api] No auth token found in cookies (js-readable)');
+    }
+  } catch (e) {
+    console.error('[api] Error in request interceptor', e);
   }
   return config;
 });
@@ -42,7 +96,7 @@ api.interceptors.response.use(
     if (error.response?.status === 401) {
       localStorage.removeItem('access_token');
       localStorage.removeItem('refresh_token');
-      window.location.href = '/login';
+      //window.location.href = '/login';
     }
     return Promise.reject(error);
   }
@@ -228,5 +282,6 @@ export const vaultApi = {
     return response.data;
   },
 };
+
 
 export default api;
