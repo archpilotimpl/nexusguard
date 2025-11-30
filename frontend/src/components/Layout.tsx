@@ -29,6 +29,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { user, logout } = useAuthStore();
 
+
   return (
     <div className="min-h-screen bg-gray-100">
       {/* Sidebar */}

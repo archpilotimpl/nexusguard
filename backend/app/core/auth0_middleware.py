@@ -39,7 +39,7 @@ class Auth0Middleware:
             )
 
             # Verify standard claims
-            if payload.get("iss") != f"{self.domain}/":
+            if payload.get("iss") != f"https://{self.domain}/":
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail="Invalid token issuer"

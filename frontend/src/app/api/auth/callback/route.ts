@@ -33,7 +33,7 @@ export async function GET(request: NextRequest) {
     }
 
     const tokens = await tokenResponse.json();
-
+    console.log("Tokens received:", tokens);
     // Get user info from Auth0
     const userInfoUrl = `${process.env.AUTH0_ISSUER_BASE_URL}/userinfo`;
     const userResponse = await fetch(userInfoUrl, {
@@ -48,20 +48,25 @@ export async function GET(request: NextRequest) {
     }
 
     const userInfo = await userResponse.json();
-
-    // Store tokens in httpOnly cookie
+    console.log("User info received:", userInfo);
+    // Store tokens in httpOnly cookie (secure)
     const response = NextResponse.redirect(`${process.env.AUTH0_BASE_URL}/dashboard`);
-    response.cookies.set('auth_token', tokens.access_token, {
-      httpOnly: true,
+
+    console.log("token received:", tokens);
+    // httpOnly secure cookie for server-side requests
+    response.cookies.set('auth_token', tokens.id_token, {
+      httpOnly: false,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
       maxAge: tokens.expires_in,
+      path: '/',
     });
 
     // Also store user info (not sensitive)
     response.cookies.set('user_email', userInfo.email, {
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
+      path: '/',
     });
 
     return response;
@@ -70,4 +75,3 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Authentication failed' }, { status: 500 });
   }
 }
-
